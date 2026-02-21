@@ -1,0 +1,33 @@
+# --- Core Environment (The Gym) ---
+# The interface to LLVM. This is your "Factory".
+compiler_gym>=0.2.5
+
+# --- The Boss Agent (RL/Optimization) ---
+# PPO Algorithm and RL utilities.
+# Note: 'shimmy' helps older Gym envs (like CompilerGym) work with newer SB3.
+stable-baselines3[extra]>=2.0.0
+shimmy>=1.0.0
+gymnasium>=0.28.1
+
+# --- The Security Agent (Semantic Analysis) ---
+# Hugging Face for CodeBERT.
+transformers>=4.30.0
+torch>=2.0.0
+accelerate>=0.20.0
+scikit-learn>=1.3.0  # For vector similarity calculations if needed locally
+
+# --- The Fixer Agent (Local LLM) ---
+# Python wrapper to talk to your local Ollama instance (CodeLlama).
+ollama>=0.1.0
+
+# --- The Memory (Database) ---
+# Connection to Supabase/Postgres for storing embeddings.
+supabase>=2.0.0
+psycopg2-binary>=2.9.0
+
+# --- Utilities & Visualization ---
+# For tracking training progress and plotting reward graphs.
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+tqdm>=4.65.0  # Progress bars for long training loops
