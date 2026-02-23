@@ -1,0 +1,37 @@
+compiler:
+  frontend: clang
+  target_arch: arm64-apple-macosx
+  opt_level: O0
+  ir_output_dir: /tmp/agentic_c/ir
+
+agents:
+  boss:
+    top_k_memory: 5
+    max_retries: 3
+  fixer:
+    max_repair_attempts: 3
+    codebert_model: "microsoft/codebert-base"
+  ir_tuner:
+    max_steps: 45
+    reward_metric: IrInstructionCount
+  hw_tuner:
+    max_steps: 30
+    target: llvm
+
+ppo:
+  learning_rate: 0.0003
+  n_steps: 2048
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+
+rewards:
+  perf_weight: 0.5
+  security_weight: 0.35
+  size_weight: 0.15
+
+memory:
+  host: localhost
+  port: 5432
+  db: agentic_c
+  vector_dim: 256
