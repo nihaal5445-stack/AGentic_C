@@ -1,37 +1,136 @@
-compiler:
-  frontend: clang
-  target_arch: arm64-apple-macosx
-  opt_level: O0
-  ir_output_dir: /tmp/agentic_c/ir
+# ============================================================
+# AGentic_C — Master Config
+# Single source of truth for all agents and pipeline settings.
+# ============================================================
 
+# ------------------------------------------------------------
+# Compiler frontend
+# ------------------------------------------------------------
+compiler:
+  frontend:       clang
+  target_arch:    arm64-apple-macosx
+  opt_level:      O0           # always O0 — agents do the optimisation
+  ir_output_dir:  /tmp/agentic_c/ir
+
+# ------------------------------------------------------------
+# Pipeline mode
+# ------------------------------------------------------------
+pipeline:
+  hft_mode:       true         # enable HFT agent chain
+  cold_path_only: false        # set true to skip HFT chain entirely
+
+# ------------------------------------------------------------
+# Agents
+# ------------------------------------------------------------
 agents:
+
   boss:
-    top_k_memory: 5
-    max_retries: 3
+    top_k_memory:  5           # past compilations to retrieve from pgvector
+    max_retries:   3           # max Pre-IR Fixer retry attempts
+
   fixer:
     max_repair_attempts: 3
     codebert_model: "microsoft/codebert-base"
+
+    # HFT latency anti-pattern scanner
+    hft_scanner:
+      enabled:              true
+      severity_threshold:   "major"   # flag major and above (not minor)
+      cold_path_advisory:   true      # scan cold path but don't penalise
+
   ir_tuner:
-    max_steps: 45
-    reward_metric: IrInstructionCount
+    max_steps:        45
+    reward_metric:    IrInstructionCount
+
+    # HFT mode overrides
+    hft_max_steps:    35              # tighter budget for hot path
+    priority_passes_first: true       # apply anti-pattern passes before PPO
+    early_stop_on_budget: true        # stop as soon as latency budget is met
+
+    # Reward shaper weights (must sum to ~1.0)
+    reward:
+      alpha: 0.40   # instruction count reduction
+      beta:  0.40   # latency improvement
+      gamma: 0.15   # anti-pattern resolution
+      delta: 0.05   # over-budget penalty
+
   hw_tuner:
-    max_steps: 30
-    target: llvm
+    max_steps:     30
+    target:        llvm
 
+    # HFT mode overrides
+    hft_max_steps: 20
+    isa_target:    arm64          # arm64 | x86_64 | x86_64_avx2
+    neon_enabled:  true           # Apple Silicon NEON SIMD
+    cache_line_bytes: 64
+
+    # Reward shaper weights for HW tuner
+    reward:
+      alpha: 0.30   # instruction count
+      beta:  0.50   # latency (higher weight — HW tuner is latency specialist)
+      gamma: 0.10   # anti-pattern resolution
+      delta: 0.10   # over-budget penalty (stricter at HW stage)
+
+  timing_verifier:
+    enabled:        true
+    method:         "cost_model"    # 'cost_model' | 'perf' | 'iaca'
+    # cost_model = fast heuristic (LatencyCostModel)
+    # perf       = actual perf stat measurement (needs Linux perf)
+    # iaca       = Intel Architecture Code Analyser (x86 only)
+
+# ------------------------------------------------------------
+# HFT latency budgets (all values in nanoseconds)
+# Loaded by Boss Agent PathClassifier and Timing Verifier
+# ------------------------------------------------------------
+latency_budget:
+  tick_to_order_ns:       2000   # total hot path budget end to end
+  market_data_parse_ns:   200    # parse wire message
+  signal_eval_ns:         400    # evaluate alpha / signal condition
+  risk_check_ns:          150    # inline risk gate
+  order_serialise_ns:     250    # build and send the order
+  headroom_ns:            200    # buffer for jitter and NIC variance
+
+# ------------------------------------------------------------
+# Hardware profile (used by HW Tuner and Timing Verifier)
+# ------------------------------------------------------------
+hardware:
+  cpu:              arm64          # arm64 | x86_64
+  cpu_model:        apple_m4_pro   # for ISA feature selection
+  nic:              generic         # generic | solarflare_x2 | mellanox_cx6
+  bypass_mode:      none            # none | dpdk | openonload | vma
+  numa_node:        0
+  cpu_isolated:     false           # true in production co-location
+  exchange_proto:   fix             # fix | itch | ouch | sbe
+  cache_line_bytes: 64
+  neon_available:   true            # arm64 SIMD
+  amx_available:    false           # Apple AMX (matrix extensions)
+
+# ------------------------------------------------------------
+# PPO hyperparameters (shared across all agents)
+# ------------------------------------------------------------
 ppo:
-  learning_rate: 0.0003
-  n_steps: 2048
-  batch_size: 64
-  n_epochs: 10
-  gamma: 0.99
+  learning_rate:  0.0003
+  n_steps:        2048
+  batch_size:     64
+  n_epochs:       10
+  gamma:          0.99
 
+# ------------------------------------------------------------
+# Composite reward weights (general / cold path)
+# HFT-specific weights live under each agent above
+# ------------------------------------------------------------
 rewards:
-  perf_weight: 0.5
-  security_weight: 0.35
-  size_weight: 0.15
+  perf_weight:      0.50
+  security_weight:  0.35
+  size_weight:      0.15
 
+# ------------------------------------------------------------
+# Memory / experience store (PostgreSQL + pgvector)
+# ------------------------------------------------------------
 memory:
-  host: localhost
-  port: 5432
-  db: agentic_c
-  vector_dim: 256
+  host:        localhost
+  port:        5432
+  db:          agentic_c
+  vector_dim:  256              # must match SimpleIREncoder.DIM
+  top_k:       5
+  min_reward_threshold: 0.75   # only use past experiences above this reward
