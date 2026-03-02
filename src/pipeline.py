@@ -54,13 +54,13 @@ sys.path.insert(0, str(_ROOT / "src"))
 
 try:
     from agents.boss_agent      import BossAgent, CompilationContext, PathLabel
-    from agents.fixer_agent_hft import FixerAgent
+    from agents.fixer_agent   import FixerAgent
     from agents.ir_tuner_agent  import IRTunerAgent
     from agents.hw_tuner_agent  import HWTunerAgent
 except ImportError:
     # Try flat import (running from src/agents/ directly)
     from boss_agent      import BossAgent, CompilationContext, PathLabel
-    from fixer_agent_hft import FixerAgent
+    from fixer_agent    import FixerAgent
     from ir_tuner_agent  import IRTunerAgent
     from hw_tuner_agent  import HWTunerAgent
 
