@@ -151,6 +151,15 @@ class Pipeline:
         self.max_retries = self.config.get("agents", {}) \
                                .get("boss", {}).get("max_retries", 3)
 
+        # Init experience store once
+        self.store = None
+        try:
+            from memory.experience_store import ExperienceStore
+            self.store = ExperienceStore(config=self.config)
+            self._log(f"Experience store ready ({self.store.backend})")
+        except Exception as e:
+            self._log(f"Experience store unavailable: {e}")
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -234,7 +243,8 @@ class Pipeline:
         # ── Stage 8: Experience store ──────────────────────────────────
         t = time.perf_counter()
         reward = self._compute_pipeline_reward(hot_results, cold_results)
-        stored = self._store_experience(plan, reward)
+        _partial = PipelineResult(success=True, source_path=source_path, hft_mode=self.hft_mode, hot_unit_results=hot_results, cold_unit_results=cold_results, ir_path=ir_path)
+        stored = self._store_experience(plan, reward, result=_partial)
         stage_times["experience_store"] = time.perf_counter() - t
 
         # ── Assemble result ────────────────────────────────────────────
@@ -590,30 +600,53 @@ class Pipeline:
 
         return round(float(np.mean(scores)), 4) if scores else 0.5
 
-    def _store_experience(self, plan, reward: float) -> bool:
+    def _store_experience(self, plan, reward: float, result=None) -> bool:
         """
         Saves (embedding, plan, reward) to the experience store.
         Stubs gracefully if PostgreSQL / pgvector is not available.
         """
         min_threshold = self.config.get("memory", {}).get(
-                        "min_reward_threshold", 0.75)
+                        "min_reward_threshold", 0.50)
 
         if reward < min_threshold:
             self._log(f"[8/8] Experience NOT stored "
                       f"(reward={reward:.3f} < threshold={min_threshold})")
             return False
 
+        if self.store is None:
+            self._log(f"[8/8] Experience store not available")
+            return False
+
         try:
-            # Try real pgvector store (from src/memory/)
-            from memory.experience_store import ExperienceStore
-            store = ExperienceStore(config=self.config)
-            store.save(plan=plan, reward=reward)
-            self._log(f"[8/8] Experience stored (reward={reward:.3f})")
-            return True
-        except ImportError:
-            # Stub — log only
-            self._log(f"[8/8] Experience stored (stub, reward={reward:.3f})")
-            return True
+            import numpy as np
+            # Build metadata
+            metadata = {}
+            if result:
+                metadata = {
+                    "source_path":    result.source_path,
+                    "hft_mode":       result.hft_mode,
+                    "hot_units":      [r.unit_name for r in result.hot_unit_results],
+                    "anti_patterns":  [ap.split(":")[0] for r in result.hot_unit_results for ap in r.anti_patterns],
+                    "latency_before": float(np.mean([r.latency_before_ns for r in result.hot_unit_results])) if result.hot_unit_results else 0.0,
+                    "latency_after":  float(np.mean([r.latency_after_ns  for r in result.hot_unit_results])) if result.hot_unit_results else 0.0,
+                    "passes_applied": list({p for r in result.hot_unit_results for p in r.passes_applied}),
+                }
+            # Get embedding
+            try:
+                from agents.boss_agent import SimpleIREncoder
+                ir_path = getattr(result, "ir_path", "")
+                import os
+                if ir_path and os.path.exists(ir_path):
+                    embedding = SimpleIREncoder().encode(open(ir_path).read())
+                else:
+                    embedding = np.zeros(256, dtype=np.float32)
+            except Exception:
+                embedding = np.zeros(256, dtype=np.float32)
+
+            saved = self.store.save(embedding=embedding, plan=plan, reward=reward, metadata=metadata)
+            if saved:
+                self._log(f"[8/8] Experience saved → {self.store.backend} (reward={reward:.3f})")
+            return saved
         except Exception as e:
             self._log(f"[8/8] Experience store failed: {e}")
             return False

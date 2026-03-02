@@ -8,7 +8,7 @@
 # ------------------------------------------------------------
 compiler:
   frontend:       clang
-  target_arch:    arm64-apple-macosx
+  target_arch:    ""
   opt_level:      O0           # always O0 — agents do the optimisation
   ir_output_dir:  /tmp/agentic_c/ir
 
@@ -130,7 +130,7 @@ rewards:
 memory:
   host:        localhost
   port:        5432
-  db:          agentic_c
+  db:          Agentic_C
   vector_dim:  256              # must match SimpleIREncoder.DIM
   top_k:       5
-  min_reward_threshold: 0.75   # only use past experiences above this reward
+  min_reward_threshold: 0.50   # only use past experiences above this reward
